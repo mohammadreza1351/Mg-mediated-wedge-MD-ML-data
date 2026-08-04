@@ -1,0 +1,110 @@
+# ============================================================
+# in.main
+# Full MD Workflow for Nanofluid EOR under Body Force
+# ============================================================
+
+# ------------------- 1. Units & Atom Style ------------------
+units           real
+atom_style      full
+boundary        p p f
+
+bond_style      harmonic
+angle_style     harmonic
+
+# ------------------- 2. Simulation Box ----------------------
+region          sim_box block 0 80 0 160 0 90 units box
+create_box      15 sim_box &
+    bond/types 1 &
+    angle/types 1 &
+    extra/bond/per/atom 11 &
+    extra/angle/per/atom 10 &
+    extra/special/per/atom 12
+
+read_data       oil_drop.data add append offset 0 0 0 0 0 shift -60 -220 -135
+#read_restart restart.equil
+change_box      all x final 0 80 y final 0 160 z final 0 90 remap
+
+# ------------------- 3. Walls & Fluid Regions ----------------
+lattice         fcc 4.0
+
+region          lower_wall block 0 80 0 160 0 10 units box
+region          upper_wall block 0 80 0 160 80 90 units box
+region          fluid_zone block 0 80 0 160 10.5 79.5 units box
+
+create_atoms    1 region lower_wall units box
+create_atoms    2 region upper_wall units box
+create_atoms    11 random 6000 12345 fluid_zone units box
+create_atoms    4  random 500  6789  fluid_zone units box
+create_atoms    6  random 100  54321 fluid_zone units box
+
+# ------------------- 4. Masses -------------------------------
+mass            1 40.078    # Calcium
+mass            2 60.008    # Carbonate
+mass            3 14.027    # Oil (CH2)
+mass            4 14.027    # Surfactant
+mass            5 14.027    # Extra Surfactant
+mass            6 28.086    # Silica (NP)
+mass            7 15.999    # Oxygen (NP)
+mass            8 1.0          # Hydrogen 
+mass            9 1.0         # Hydrogen
+mass            10 1.0       # Hydrogen
+mass            11 15.999   # Water Oxygen
+mass            12 1.008    # Water Hydrogen
+mass            13 40.078   # Ca (High Salinity Ion)
+mass            14 35.453   # Cl
+mass            15 1.0         # H
+# ------------------- 5. Groups -------------------------------
+group lower_wall type 1
+group upper_wall type 2
+group oil        type 3
+group surfactant type 4 5
+group np         type 6 7
+group water      type 11 12
+group mobile     subtract all lower_wall upper_wall
+
+# ------------------- 6. Salinity Control ---------------------
+variable frac1 equal ${wt}/100.0
+variable frac2 equal 2*${frac1}
+
+set group water type/fraction 13 ${frac1} 12345
+set group water type/fraction 14 ${frac2} 67890
+
+set type 13 charge  2.0
+set type 14 charge -1.0
+
+# ------------------- 7. Interactions -------------------------
+pair_style      lj/cut/coul/long 10.0 12.0
+kspace_style    pppm 1.0e-4
+kspace_modify   slab 3.0 gewald 0.22
+
+pair_coeff * * 0.1 3.5
+pair_coeff 11 11 0.1553 3.166 
+pair_coeff 12 12 0.0    0.0
+pair_coeff 13 13 0.1    2.8   # Ca-Ca
+pair_coeff 14 14 0.15   4.4   # Cl-Cl
+
+# --- Ion bridging innovation ---
+pair_coeff 13 6 1.2 3.0       # Ca-(NP) جذب قوی کلسیم به نانوذره
+pair_coeff 13 3 0.8 3.5       # Oil-Ca جذب کلسیم به نفت
+pair_coeff 14 6 0.1 3.2       # کلر به نانوذره (ضعیف - دافعه هم‌پوشانی)
+pair_coeff 3  6 0.5 3.5        # Oil - (NP)
+
+pair_modify mix arithmetic
+
+bond_coeff  1 250.0 1.54
+angle_coeff 1 60.0 109.5
+
+# ------------------- Restart Management ---------------------
+# Write restart files every 50,000 steps for safe continuation
+restart         50000 restart.equil restart.flow
+
+# If a restart file exists, uncomment the following lines
+# and comment out the read_data command above
+#
+# variable rst file restart.equil
+# if "${rst}" == "restart.equil" then "read_restart restart.equil"
+
+
+# ------------------- 8. Run Phases ---------------------------
+include in.equilibration
+include in.flow

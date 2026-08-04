@@ -1,0 +1,73 @@
+# ============================================================
+# in.equilibration
+# Equilibrium phase (NVT, no external driving force)
+# ============================================================
+
+print ">>> Starting Equilibration Phase (NVT, equilibrium properties)"
+
+# ------------------------------------------------------------
+# 1. Density profile (equilibrium)
+# ------------------------------------------------------------
+compute c_dens all chunk/atom bin/1d z lower 0.2 units box
+fix f_dens all ave/chunk 10 1000 10000 c_dens density/mass &
+file density_${ion}_${wt}_${T}_${push_force}.dat
+
+# ------------------------------------------------------------
+# 2. RDFs (structural analysis at equilibrium)
+# ------------------------------------------------------------
+compute rdf_np_ca all rdf 200 6 13
+compute rdf_oil_water all rdf 200 3 11
+compute rdf_surf_oil all rdf 200 4 3
+
+fix frdf all ave/time 100 1 100 &
+c_rdf_np_ca[*] c_rdf_oil_water[*] c_rdf_surf_oil[*] &
+file rdf_all_${ion}_${wt}_${T}_${push_force}.dat mode vector
+
+# ------------------------------------------------------------
+# 3. Mean Square Displacement (equilibrium diffusion)
+# ------------------------------------------------------------
+compute c_msd oil msd
+fix f_msd all ave/time 100 10 1000 c_c_msd[4] &
+file msd_oil_${ion}_${wt}_${T}_${push_force}.dat
+
+# ------------------------------------------------------------
+# 4. Center of Mass of oil (reference state for RF)
+# ------------------------------------------------------------
+compute c_com oil com
+fix f_com all ave/time 100 10 1000 c_c_com[2] &
+file com_oil_eq_${ion}_${wt}_${T}_${push_force}.dat
+
+# ------------------------------------------------------------
+# 5. Interfacial Tension (equilibrium definition)
+# ------------------------------------------------------------
+variable IFT equal 0.5*lz*(pzz-0.5*(pxx+pyy))*0.101325
+fix f_ift all ave/time 100 10 1000 v_IFT &
+file ift_${ion}_${wt}_${T}_${push_force}.dat
+
+# ------------------------------------------------------------
+# 6. Thermodynamic output
+# ------------------------------------------------------------
+thermo_style custom step temp press v_IFT
+thermo 1000
+
+# ------------------------------------------------------------
+# 7. Wall constraints
+# ------------------------------------------------------------
+fix f_freeze_low lower_wall setforce 0.0 0.0 0.0
+fix f_freeze_up  upper_wall setforce 0.0 0.0 0.0
+
+# ------------------------------------------------------------
+# 8. Gentle start (remove bad contacts)
+# ------------------------------------------------------------
+fix f_lim mobile nve/limit 0.1
+run 5000
+unfix f_lim
+
+# ------------------------------------------------------------
+# 9. NVT equilibration (ONLY mobile atoms)
+# ------------------------------------------------------------
+fix nvt mobile nvt temp ${T} ${T} 100.0
+timestep 1.0
+run 200000
+
+print ">>> Equilibration completed"
